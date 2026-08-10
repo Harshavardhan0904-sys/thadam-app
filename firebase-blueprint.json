@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User account linked to a company and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "companyId": { "type": "string" },
+        "companyName": { "type": "string" },
+        "role": { "type": "string", "enum": ["Company Admin", "Dispatcher", "Fleet Manager", "Accounts", "Driver"] },
+        "phone": { "type": "string" },
+        "driverRecordId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "companyId", "role"]
+    },
+    "companies": {
+      "title": "Freight Company",
+      "description": "Indian logistics company profile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "gstin": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "fleetCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "ownerUid"]
+    },
+    "shipments": {
+      "title": "Shipments / Bilty (LR)",
+      "description": "Freight loads and consignment details",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "lrNumber": { "type": "string" },
+        "consignor": { "type": "string" },
+        "consignee": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "cargoType": { "type": "string" },
+        "shipmentType": { "type": "string", "enum": ["FTL", "LTL", "Express"] },
+        "freightAmount": { "type": "number" },
+        "advancePaid": { "type": "number" },
+        "ewayBillNo": { "type": "string" },
+        "assignedVehicleId": { "type": "string" },
+        "assignedTruckNumber": { "type": "string" },
+        "assignedDriverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Booked", "Loaded", "In Transit", "Delivered", "Cancelled"] },
+        "bookingDate": { "type": "string" },
+        "expectedDeliveryDate": { "type": "string" },
+        "statusHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string" },
+              "timestamp": { "type": "string" },
+              "updatedByRole": { "type": "string" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["companyId", "lrNumber", "consignor", "consignee", "origin", "destination", "status"]
+    },
+    "vehicles": {
+      "title": "Fleet Vehicles",
+      "description": "Trucks, containers, and trailers in fleet",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "registrationNumber": { "type": "string" },
+        "model": { "type": "string" },
+        "capacityTons": { "type": "number" },
+        "type": { "type": "string" },
+        "status": { "type": "string", "enum": ["Available", "En-Route", "Maintenance"] },
+        "fastagBalance": { "type": "number" },
+        "driverName": { "type": "string" },
+        "assignedDriverId": { "type": "string" },
+        "lastLocation": { "type": "string" }
+      },
+      "required": ["companyId", "registrationNumber"]
+    },
+    "drivers": {
+      "title": "Company Drivers",
+      "description": "Drivers employed by the company with licensing details and vehicle assignments",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "licenseNumber": { "type": "string" },
+        "licenseExpiry": { "type": "string" },
+        "licenseType": { "type": "string", "enum": ["LMV", "HMV", "Transport"] },
+        "status": { "type": "string", "enum": ["Active", "On Leave", "Inactive"] },
+        "assignedVehicleId": { "type": "string" },
+        "address": { "type": "string" },
+        "joiningDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["companyId", "fullName", "phoneNumber", "licenseNumber", "licenseExpiry", "licenseType", "status"]
+    },
+    "branches": {
+      "title": "Company Branches",
+      "description": "Operating branches and head office locations of the company",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "branchName": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "address": { "type": "string" },
+        "isHeadOffice": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["companyId", "branchName", "city", "isHeadOffice"]
+    },
+    "driverLocations": {
+      "title": "Driver Live Locations",
+      "description": "Real-time geolocation telemetry pinged by drivers for active in-transit shipments",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string" },
+        "shipmentId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["driverId", "shipmentId", "companyId", "latitude", "longitude", "timestamp"]
+    }
+  },
+  "firestore": {
+    "driverLocations": {
+      "schema": { "$ref": "#/entities/driverLocations" },
+      "description": "Real-time driver location telemetry collection"
+    },
+    "branches": {
+      "schema": { "$ref": "#/entities/branches" },
+      "description": "Company operating branches collection"
+    },
+    "drivers": {
+      "schema": { "$ref": "#/entities/drivers" },
+      "description": "Company drivers collection"
+    },
+    "vehicles": {
+      "schema": { "$ref": "#/entities/vehicles" },
+      "description": "Company fleet vehicles collection"
+    },
+    "shipments": {
+      "schema": { "$ref": "#/entities/shipments" },
+      "description": "Company shipments collection"
+    }
+  }
+}

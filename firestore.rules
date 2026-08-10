@@ -1,0 +1,245 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userCompanyId() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? getUserData().companyId
+        : null;
+    }
+
+    function userRole() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? getUserData().role
+        : null;
+    }
+
+    function isCompanyAdmin() {
+      return userRole() == 'Company Admin';
+    }
+
+    function isFleetManager() {
+      return userRole() == 'Fleet Manager';
+    }
+
+    function isDispatcher() {
+      return userRole() == 'Dispatcher';
+    }
+
+    function isAccounts() {
+      return userRole() == 'Accounts';
+    }
+
+    function isDriver() {
+      return userRole() == 'Driver';
+    }
+
+    function driverRecordId() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && ('driverRecordId' in getUserData())
+        ? getUserData().driverRecordId
+        : null;
+    }
+
+    function isSameCompany(companyId) {
+      return isSignedIn() && userCompanyId() != null && userCompanyId() == companyId;
+    }
+
+    function isCompanyOwner(companyId) {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/companies/$(companyId)) &&
+         get(/databases/$(database)/documents/companies/$(companyId)).data.ownerUid == request.auth.uid) ||
+        (existsAfter(/databases/$(database)/documents/companies/$(companyId)) &&
+         getAfter(/databases/$(database)/documents/companies/$(companyId)).data.ownerUid == request.auth.uid)
+      );
+    }
+
+    // Default deny for all collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Companies collection
+    match /companies/{companyId} {
+      allow read: if isSignedIn() && (
+        isSameCompany(companyId) ||
+        isCompanyOwner(companyId)
+      );
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn() && (
+        (resource != null && resource.data.ownerUid == request.auth.uid) ||
+        (isSameCompany(companyId) && isCompanyAdmin())
+      ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['subscriptionStatus', 'subscriptionPlan', 'maxVehicles', 'subscriptionRenewsAt']);
+      allow delete: if false;
+    }
+
+    // Branches collection (Multi-Branch Operations)
+    match /branches/{branchId} {
+      allow read: if isSignedIn() && resource != null && (
+        isSameCompany(resource.data.companyId) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && isCompanyAdmin()) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && isCompanyAdmin()) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId))
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isCompanyAdmin()) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId ||
+        (resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId)))
+      );
+
+      allow create: if isSignedIn() && (
+        (request.auth.uid == userId && isCompanyOwner(request.resource.data.companyId)) ||
+        (isCompanyAdmin() && isSameCompany(request.resource.data.companyId)) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+
+      allow update: if isSignedIn() && (
+        (request.auth.uid != userId && isCompanyAdmin() && isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId)) ||
+        (request.auth.uid != userId && isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId)) ||
+        (request.auth.uid == userId && request.resource.data.companyId == resource.data.companyId && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])))
+      );
+
+      allow delete: if false;
+    }
+
+    // Shipments collection (LR / Bilty)
+    match /shipments/{shipmentId} {
+      allow read: if isSignedIn() && (
+        (resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId))) ||
+        (isDriver() && driverRecordId() != null && resource != null && resource.data.assignedDriverId == driverRecordId())
+      );
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId)) ||
+        (isDriver() && driverRecordId() != null && resource.data.assignedDriverId == driverRecordId())
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && (isCompanyAdmin() || isFleetManager())) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+    }
+
+    // Vehicles collection (Fleet)
+    match /vehicles/{vehicleId} {
+      allow read: if isSignedIn() && resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId));
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId))
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && (isCompanyAdmin() || isFleetManager())) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+    }
+
+    // Drivers collection (Driver Management)
+    match /drivers/{driverId} {
+      allow read: if isSignedIn() && (
+        (resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId))) ||
+        (isDriver() && driverRecordId() != null && driverRecordId() == driverId)
+      );
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isFleetManager() || isDispatcher())) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId))
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && (isCompanyAdmin() || isFleetManager())) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+    }
+
+    // Invoices collection
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn() && resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId));
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId))
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+    }
+
+    // Payments collection
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && resource != null && (isSameCompany(resource.data.companyId) || isCompanyOwner(resource.data.companyId));
+      allow create: if isSignedIn() && (
+        (isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        (isCompanyOwner(resource.data.companyId) && isCompanyOwner(request.resource.data.companyId))
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && (isCompanyAdmin() || isAccounts())) ||
+        isCompanyOwner(request.resource.data.companyId)
+      );
+    }
+
+    // Driver Locations collection
+    match /driverLocations/{locationId} {
+      allow read: if isSignedIn() && (
+        resource == null ||
+        isSameCompany(resource.data.companyId) ||
+        isCompanyOwner(resource.data.companyId) ||
+        (isDriver() && driverRecordId() != null && resource.data.driverId == driverRecordId())
+      );
+      allow create: if isSignedIn() && (
+        isSameCompany(request.resource.data.companyId) && (
+          (isDriver() && driverRecordId() != null && request.resource.data.driverId == driverRecordId()) ||
+          (isCompanyAdmin() || isFleetManager() || isDispatcher())
+        )
+      );
+      allow update: if isSignedIn() && resource != null && (
+        isSameCompany(resource.data.companyId) && isSameCompany(request.resource.data.companyId) && (
+          (isDriver() && driverRecordId() != null && request.resource.data.driverId == driverRecordId()) ||
+          (isCompanyAdmin() || isFleetManager() || isDispatcher())
+        )
+      );
+      allow delete: if isSignedIn() && resource != null && (
+        (isSameCompany(resource.data.companyId) && isCompanyAdmin()) ||
+        isCompanyOwner(resource.data.companyId)
+      );
+    }
+  }
+}

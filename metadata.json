@@ -1,0 +1,6 @@
+{
+  "name": "Thadam",
+  "description": "Logistics management platform for Indian freight companies with fleet management, dispatch tracking, rate cards, and Firebase auth.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
