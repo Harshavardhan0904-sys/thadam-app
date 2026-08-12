@@ -6,6 +6,7 @@ import {
 import { auth } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
 import { SubscriptionPlan } from "../types";
+import { getApiUrl } from "../lib/apiConfig";
 
 interface PricingPageProps {
   vehicleCount?: number;
@@ -29,9 +30,11 @@ export const PricingPage: React.FC<PricingPageProps> = ({ vehicleCount = 0, onSu
   const companyId = userProfile?.companyId || companyProfile?.id || "";
   const currentPlan = companyProfile?.subscriptionPlan;
   const isSubscriptionActive =
-    companyProfile?.subscriptionStatus === "active" &&
-    companyProfile?.subscriptionRenewsAt &&
-    new Date(companyProfile.subscriptionRenewsAt) > new Date();
+    Boolean(companyProfile?.isDemoAccount) ||
+    companyProfile?.subscriptionStatus === "active" ||
+    (companyProfile?.subscriptionStatus === "active" &&
+      companyProfile?.subscriptionRenewsAt &&
+      new Date(companyProfile.subscriptionRenewsAt) > new Date());
 
   const maxVehicles = companyProfile?.maxVehicles || (currentPlan === "Growth" ? 30 : currentPlan === "Starter" ? 10 : 0);
 
@@ -67,7 +70,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ vehicleCount = 0, onSu
         }
       }
 
-      const res = await fetch("/api/razorpay/verify-payment", {
+      const res = await fetch(getApiUrl("/api/razorpay/verify-payment"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -122,7 +125,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ vehicleCount = 0, onSu
 
     try {
       // Step 1: Create Order via Server-side Cloud API
-      const orderRes = await fetch("/api/razorpay/create-order", {
+      const orderRes = await fetch(getApiUrl("/api/razorpay/create-order"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId, planId })

@@ -16,16 +16,19 @@ import { LorryReceiptModal } from "./LorryReceiptModal";
 import { ShipmentDetailModal } from "./ShipmentDetailModal";
 import { RateCalculatorWidget } from "./RateCalculatorWidget";
 import { PricingPage } from "./PricingPage";
+import { AdminPanel } from "./AdminPanel";
 
 export const Dashboard: React.FC = () => {
-  const { userProfile, companyProfile, logout } = useAuth();
+  const { userProfile, companyProfile, isSuperAdmin, logout } = useAuth();
   
-  const [activeTab, setActiveTab] = useState<"overview" | "shipments" | "fleet" | "drivers" | "rates" | "financials" | "team" | "branches" | "pricing">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "shipments" | "fleet" | "drivers" | "rates" | "financials" | "team" | "branches" | "pricing" | "admin">("overview");
 
   const isSubscriptionActive =
-    companyProfile?.subscriptionStatus === "active" &&
-    companyProfile?.subscriptionRenewsAt &&
-    new Date(companyProfile.subscriptionRenewsAt) > new Date();
+    Boolean(companyProfile?.isDemoAccount) ||
+    companyProfile?.subscriptionStatus === "active" ||
+    (companyProfile?.subscriptionStatus === "active" &&
+      companyProfile?.subscriptionRenewsAt &&
+      new Date(companyProfile.subscriptionRenewsAt) > new Date());
   
   // Active Role State (Allows switching role in UI to test Role-Based Access Control)
   const [activeRole, setActiveRole] = useState<UserRole>(userProfile?.role || "Company Admin");
@@ -1271,6 +1274,7 @@ export const Dashboard: React.FC = () => {
             { id: "team", label: `Company & Team (${teamMembers.length})`, icon: Users },
             { id: "branches", label: `Branches (${branches.length})`, icon: Building2 },
             { id: "pricing", label: isSubscriptionActive ? `Plan: ${companyProfile?.subscriptionPlan || 'Active'}` : "Pricing & Subscription ⚡", icon: CreditCard },
+            ...(isSuperAdmin ? [{ id: "admin", label: "Admin Panel 🛡️", icon: ShieldCheck }] : [])
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1369,6 +1373,11 @@ export const Dashboard: React.FC = () => {
           </div>
         ) : (
           <>
+            {/* SUPER ADMIN PANEL TAB */}
+            {activeTab === "admin" && (
+              <AdminPanel onBackToApp={() => setActiveTab("overview")} />
+            )}
+
             {/* PRICING & SUBSCRIPTION TAB */}
             {activeTab === "pricing" && (
               <PricingPage

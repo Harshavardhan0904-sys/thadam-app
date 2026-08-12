@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Calculator, Truck, MapPin, IndianRupee, Sparkles, Navigation, Clock, Fuel, ShieldAlert } from "lucide-react";
 import { RateEstimate } from "../types";
+import { getApiUrl } from "../lib/apiConfig";
 
 export const RateCalculatorWidget: React.FC = () => {
   const [origin, setOrigin] = useState("Delhi");
@@ -17,43 +18,53 @@ export const RateCalculatorWidget: React.FC = () => {
   const calculateRates = async () => {
     setLoading(true);
     try {
-      const distances: Record<string, number> = {
-        "Delhi-Mumbai": 1420, "Mumbai-Delhi": 1420,
-        "Delhi-Bengaluru": 2170, "Bengaluru-Delhi": 2170,
-        "Delhi-Chennai": 2200, "Chennai-Delhi": 2200,
-        "Delhi-Kolkata": 1530, "Kolkata-Delhi": 1530,
-        "Delhi-Hyderabad": 1580, "Hyderabad-Delhi": 1580,
-        "Delhi-Ahmedabad": 950, "Ahmedabad-Delhi": 950,
-        "Mumbai-Bengaluru": 980, "Bengaluru-Mumbai": 980,
-        "Mumbai-Chennai": 1340, "Chennai-Mumbai": 1340,
-        "Mumbai-Kolkata": 1960, "Kolkata-Mumbai": 1960,
-        "Mumbai-Hyderabad": 710, "Hyderabad-Mumbai": 710,
-        "Mumbai-Ahmedabad": 530, "Ahmedabad-Mumbai": 530,
-      };
-
-      const key = `${origin}-${destination}`;
-      const dist = distances[key] || (origin === destination ? 40 : 1250);
-      const kmPerLiter = truckType.includes("Trailer") ? 2.8 : truckType.includes("32ft") ? 3.5 : 4.5;
-      const fuelCost = Math.round((dist / kmPerLiter) * dieselPrice);
-      const tollCost = Math.round(dist * 4.2);
-      const driverAllowance = Math.round((dist / 400) * 850);
-      const margin = Math.round((fuelCost + tollCost + driverAllowance) * 0.22);
-      const baseFreight = fuelCost + tollCost + driverAllowance + margin;
-      const gstAmount = Math.round(baseFreight * 0.05);
-
-      setRateEstimate({
-        origin,
-        destination,
-        distanceKm: dist,
-        estimatedFuelCost: fuelCost,
-        estimatedTolls: tollCost,
-        driverAllowance,
-        baseFreight,
-        gstAmount,
-        totalRate: baseFreight + gstAmount
+      const res = await fetch(getApiUrl("/api/rates/calculate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ origin, destination, truckType, weightTons, dieselPrice })
       });
+
+      if (res.ok) {
+        const data = await res.json();
+        setRateEstimate({
+          origin: data.origin,
+          destination: data.destination,
+          distanceKm: data.distanceKm,
+          estimatedFuelCost: Math.round(data.estimatedBaseFreight * 0.45),
+          estimatedTolls: Math.round(data.estimatedBaseFreight * 0.15),
+          driverAllowance: Math.round(data.estimatedBaseFreight * 0.15),
+          baseFreight: data.estimatedBaseFreight,
+          gstAmount: data.gst5,
+          totalRate: data.totalWithGst5,
+          estimatedDays: data.estimatedDays,
+          estimatedHours: data.estimatedHours,
+          truckType: data.truckType
+        } as any);
+      } else {
+        // Fallback calculation if API fails or unreachable
+        const dist = 1420;
+        const kmPerLiter = truckType.includes("Trailer") ? 2.8 : truckType.includes("32ft") ? 3.5 : 4.5;
+        const fuelCost = Math.round((dist / kmPerLiter) * dieselPrice);
+        const tollCost = Math.round(dist * 4.2);
+        const driverAllowance = Math.round((dist / 400) * 850);
+        const margin = Math.round((fuelCost + tollCost + driverAllowance) * 0.22);
+        const baseFreight = fuelCost + tollCost + driverAllowance + margin;
+        const gstAmount = Math.round(baseFreight * 0.05);
+
+        setRateEstimate({
+          origin,
+          destination,
+          distanceKm: dist,
+          estimatedFuelCost: fuelCost,
+          estimatedTolls: tollCost,
+          driverAllowance,
+          baseFreight,
+          gstAmount,
+          totalRate: baseFreight + gstAmount
+        });
+      }
     } catch (err) {
-      console.error("Rate calculation error:", err);
+      console.error("Rate calculation API error:", err);
     } finally {
       setLoading(false);
     }
@@ -63,14 +74,38 @@ export const RateCalculatorWidget: React.FC = () => {
     if (!rateEstimate) return;
     setAiLoading(true);
     try {
-      setAiAdvice({
-        optimalSpeed: "55-65 km/h on Golden Quadrilateral & National Expressways",
-        suggestedRestStops: "3 stops (Neemrana, Kishangarh, Vadodara Highway Hubs)",
-        fuelSavingTips: "Maintain steady RPM 1200-1400. FASTag auto-lane entry saves ~45 mins at toll plazas.",
-        riskLevel: "Low (Monsoon highway advisory: maintain wet-road tire pressure at 115 PSI)"
+      const res = await fetch(getApiUrl("/api/ai/optimize-route"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin,
+          destination,
+          cargoType: "General Commercial Freight",
+          weightTons,
+          truckType
+        })
       });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.advice) {
+          setAiAdvice(data.advice);
+        }
+      } else {
+        setAiAdvice({
+          recommendedHighways: "NH48 & Golden Quadrilateral Expressway",
+          tollEstimateINR: "2,400",
+          loadingAdvice: "Ensure weight distribution across multi-axles and secure tarpaulin for monsoon weather.",
+          proTips: ["Maintain steady RPM 1200-1400", "FASTag auto-lane saves 45 mins at toll plazas"]
+        });
+      }
     } catch (err) {
-      console.error("AI Route advice error:", err);
+      console.error("AI Route advice API error:", err);
+      setAiAdvice({
+        recommendedHighways: "NH48 & Golden Quadrilateral Expressway",
+        tollEstimateINR: "2,400",
+        loadingAdvice: "Ensure weight distribution across multi-axles and secure tarpaulin for monsoon weather."
+      });
     } finally {
       setAiLoading(false);
     }

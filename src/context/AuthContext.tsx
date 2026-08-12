@@ -9,7 +9,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc, collection, runTransaction, query, where, getDocs, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
-import { FreightUser, FreightCompany } from "../types";
+import { FreightUser, FreightCompany, SubscriptionStatus, SubscriptionPlan } from "../types";
 
 interface SignUpData {
   email: string;
@@ -25,6 +25,7 @@ interface AuthContextType {
   currentUser: FirebaseUser | null;
   userProfile: FreightUser | null;
   companyProfile: FreightCompany | null;
+  isSuperAdmin: boolean;
   loading: boolean;
   signUp: (data: SignUpData) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -32,6 +33,7 @@ interface AuthContextType {
   signInDemoDriver: () => Promise<void>;
   logout: () => Promise<void>;
   refreshCompanyProfile: () => Promise<void>;
+  refreshSuperAdminStatus: () => Promise<boolean>;
   error: string | null;
   clearError: () => void;
 }
@@ -42,12 +44,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<FreightUser | null>(null);
   const [companyProfile, setCompanyProfile] = useState<FreightCompany | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const isSigningUpRef = useRef<boolean>(false);
 
   const clearError = () => setError(null);
+
+  const refreshSuperAdminStatus = async (userToTest?: FirebaseUser | null): Promise<boolean> => {
+    const targetUser = userToTest !== undefined ? userToTest : auth.currentUser;
+    if (!targetUser) {
+      setIsSuperAdmin(false);
+      return false;
+    }
+    try {
+      // Force token refresh or check current token result for superAdmin custom claim
+      const idTokenResult = await targetUser.getIdTokenResult(false);
+      const hasClaim = Boolean(idTokenResult.claims?.superAdmin);
+      setIsSuperAdmin(hasClaim);
+      return hasClaim;
+    } catch (err) {
+      console.warn("Failed to retrieve ID token result for superAdmin check:", err);
+      setIsSuperAdmin(false);
+      return false;
+    }
+  };
 
   const fetchUserData = async (uid: string, fallbackUser?: FirebaseUser) => {
     if (isSigningUpRef.current) {
@@ -84,9 +106,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const compRef = doc(db, "companies", uData.companyId);
           const compSnap = await getDoc(compRef);
           if (compSnap.exists()) {
+            const rawComp = compSnap.data();
+            const isDemoComp =
+              rawComp?.isDemoAccount === true ||
+              uData.email?.toLowerCase().includes("demo") ||
+              rawComp?.name?.includes("Sharma Super Freight") ||
+              rawComp?.name?.includes("VRL Freight Express") ||
+              uData.companyName?.includes("Sharma Super Freight") ||
+              uData.companyName?.includes("VRL Freight Express");
+
             setCompanyProfile({
               id: compSnap.id,
-              ...compSnap.data()
+              ...rawComp,
+              isDemoAccount: isDemoComp ? true : rawComp?.isDemoAccount,
+              subscriptionStatus: isDemoComp ? "active" : (rawComp?.subscriptionStatus || "inactive"),
+              subscriptionPlan: isDemoComp ? (rawComp?.subscriptionPlan || "Growth") : rawComp?.subscriptionPlan,
+              subscriptionRenewsAt: isDemoComp ? "2099-12-31T23:59:59.000Z" : rawComp?.subscriptionRenewsAt,
+              maxVehicles: isDemoComp ? 999 : rawComp?.maxVehicles,
             } as FreightCompany);
           }
         }
@@ -101,6 +137,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           state: "Maharashtra",
           gstin: "27AABCV1234F1Z1",
           fleetCount: 18,
+          subscriptionStatus: "active" as SubscriptionStatus,
+          subscriptionPlan: "Growth" as SubscriptionPlan,
+          subscriptionRenewsAt: "2099-12-31T23:59:59.000Z",
+          maxVehicles: 999,
+          isDemoAccount: true,
           createdAt: new Date().toISOString()
         };
 
@@ -146,16 +187,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      if (user) {
-        await fetchUserData(user.uid, user);
-      } else {
-        setUserProfile(null);
-        setCompanyProfile(null);
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (user) => {
+        setCurrentUser(user);
+        if (user) {
+          await refreshSuperAdminStatus(user);
+          await fetchUserData(user.uid, user);
+        } else {
+          setIsSuperAdmin(false);
+          setUserProfile(null);
+          setCompanyProfile(null);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.warn("Auth state change error:", err);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
 
     return () => unsubscribe();
   }, []);
@@ -174,6 +224,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateProfile(user, { displayName: data.fullName });
       }
 
+      const isDemoUser =
+        data.email.toLowerCase().includes("demo") ||
+        data.companyName.includes("Sharma Super Freight") ||
+        data.companyName.includes("VRL Freight Express");
+
       // 3. Prepare company, branch & user document references and data
       const companyRef = doc(collection(db, "companies"));
       const branchRef = doc(collection(db, "branches"));
@@ -184,6 +239,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         state: "Maharashtra",
         gstin: data.gstin || "",
         fleetCount: data.fleetCount || 5,
+        subscriptionStatus: isDemoUser ? ("active" as SubscriptionStatus) : ("inactive" as SubscriptionStatus),
+        subscriptionPlan: isDemoUser ? ("Growth" as SubscriptionPlan) : undefined,
+        subscriptionRenewsAt: isDemoUser ? "2099-12-31T23:59:59.000Z" : undefined,
+        maxVehicles: isDemoUser ? 999 : 10,
+        isDemoAccount: isDemoUser ? true : undefined,
         createdAt: new Date().toISOString()
       };
 
@@ -349,6 +409,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           state: "Maharashtra",
           gstin: "27AABCV1234F1Z1",
           fleetCount: 18,
+          subscriptionStatus: "active" as SubscriptionStatus,
+          subscriptionPlan: "Growth" as SubscriptionPlan,
+          subscriptionRenewsAt: "2099-12-31T23:59:59.000Z",
+          maxVehicles: 999,
+          isDemoAccount: true,
           createdAt: new Date().toISOString()
         };
 
@@ -442,9 +507,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const compRef = doc(db, "companies", compId);
       const compSnap = await getDoc(compRef);
       if (compSnap.exists()) {
+        const rawComp = compSnap.data();
+        const isDemoComp =
+          rawComp?.isDemoAccount === true ||
+          userProfile?.email?.toLowerCase().includes("demo") ||
+          rawComp?.name?.includes("Sharma Super Freight") ||
+          rawComp?.name?.includes("VRL Freight Express");
+
         setCompanyProfile({
           id: compSnap.id,
-          ...compSnap.data()
+          ...rawComp,
+          isDemoAccount: isDemoComp ? true : rawComp?.isDemoAccount,
+          subscriptionStatus: isDemoComp ? "active" : (rawComp?.subscriptionStatus || "inactive"),
+          subscriptionPlan: isDemoComp ? (rawComp?.subscriptionPlan || "Growth") : rawComp?.subscriptionPlan,
+          subscriptionRenewsAt: isDemoComp ? "2099-12-31T23:59:59.000Z" : rawComp?.subscriptionRenewsAt,
+          maxVehicles: isDemoComp ? 999 : rawComp?.maxVehicles,
         } as FreightCompany);
       }
     } catch (err) {
@@ -468,6 +545,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         userProfile,
         companyProfile,
+        isSuperAdmin,
         loading,
         signUp,
         signIn,
@@ -475,6 +553,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInDemoDriver,
         logout,
         refreshCompanyProfile,
+        refreshSuperAdminStatus,
         error,
         clearError
       }}

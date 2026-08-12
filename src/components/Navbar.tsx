@@ -5,10 +5,11 @@ import { useAuth } from "../context/AuthContext";
 interface NavbarProps {
   onOpenAuth: (mode: "login" | "signup") => void;
   onNavigateHome?: () => void;
+  onOpenAdminPanel?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, onNavigateHome }) => {
-  const { currentUser, userProfile, companyProfile, logout, signInDemo, loading } = useAuth();
+export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, onNavigateHome, onOpenAdminPanel }) => {
+  const { currentUser, userProfile, companyProfile, isSuperAdmin, logout, signInDemo, loading } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-md">
@@ -40,6 +41,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, onNavigateHome }) =>
         <div className="flex items-center gap-3">
           {currentUser ? (
             <div className="flex items-center gap-3">
+              {/* Super Admin Panel Button - Only appears when getIdTokenResult() includes superAdmin: true */}
+              {isSuperAdmin && (
+                <button
+                  id="admin-panel-nav-btn"
+                  onClick={onOpenAdminPanel}
+                  className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow-md shadow-purple-600/30 transition-all border border-purple-400/30 cursor-pointer"
+                  title="Open Platform Super Admin Panel"
+                >
+                  <ShieldCheck className="w-4 h-4 text-purple-200" />
+                  <span>Admin Panel</span>
+                </button>
+              )}
+
               {/* Signed In User Pill */}
               <div className="hidden md:flex items-center gap-2.5 bg-slate-800/80 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs">
                 <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
@@ -48,9 +62,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAuth, onNavigateHome }) =>
                 <div className="text-left">
                   <div className="font-semibold text-slate-100 flex items-center gap-1">
                     {userProfile?.displayName || currentUser.email}
-                    <span className="bg-emerald-500/10 text-emerald-400 text-[10px] px-1.5 py-0.2 rounded border border-emerald-500/20">
-                      {userProfile?.role || "Company Admin"}
-                    </span>
+                    {isSuperAdmin ? (
+                      <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-1.5 py-0.2 rounded border border-purple-500/30">
+                        Super Admin
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-500/10 text-emerald-400 text-[10px] px-1.5 py-0.2 rounded border border-emerald-500/20">
+                        {userProfile?.role || "Company Admin"}
+                      </span>
+                    )}
                   </div>
                   <div className="text-slate-400 text-[11px] flex items-center gap-1 truncate max-w-[180px]">
                     <Building2 className="w-3 h-3 text-slate-400" />

@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import cors from "cors";
 import Razorpay from "razorpay";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -41,6 +42,35 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
+
+  // Configure CORS middleware to support Firebase Hosting, Render backend, local dev, and custom domains
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, or same-origin requests)
+        if (!origin) return callback(null, true);
+
+        // Allow Firebase Hosting domains (*.web.app, *.firebaseapp.com) and custom frontend origins
+        if (
+          origin.endsWith(".web.app") ||
+          origin.endsWith(".firebaseapp.com") ||
+          origin.includes("localhost") ||
+          origin.includes("127.0.0.1") ||
+          origin.includes("run.app") ||
+          origin.includes("onrender.com") ||
+          origin.includes("thadam")
+        ) {
+          return callback(null, true);
+        }
+
+        // Reject any origin not explicitly whitelisted above
+        return callback(new Error('Not allowed by CORS'));
+      },
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    })
+  );
 
   // Health check endpoint
   app.get("/api/health", (req, res) => {

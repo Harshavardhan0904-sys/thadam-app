@@ -39,6 +39,7 @@ export interface FreightCompany {
   subscriptionStatus?: SubscriptionStatus;
   subscriptionRenewsAt?: string;
   maxVehicles?: number;
+  isDemoAccount?: boolean;
   lastPaymentId?: string;
   lastOrderId?: string;
   createdAt: string;

@@ -4,13 +4,15 @@ import { Navbar } from "./components/Navbar";
 import { LandingPage } from "./components/LandingPage";
 import { Dashboard } from "./components/Dashboard";
 import { DriverDashboard } from "./components/DriverDashboard";
+import { AdminPanel } from "./components/AdminPanel";
 import { AuthModal } from "./components/AuthModal";
 import { Truck } from "lucide-react";
 
 function MainContent() {
-  const { currentUser, userProfile, loading } = useAuth();
+  const { currentUser, userProfile, isSuperAdmin, loading } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<"login" | "signup">("login");
+  const [showAdminView, setShowAdminView] = useState(false);
 
   const handleOpenAuth = (mode: "login" | "signup") => {
     setAuthModalMode(mode);
@@ -32,11 +34,16 @@ function MainContent() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Navbar
         onOpenAuth={handleOpenAuth}
-        onNavigateHome={() => {}}
+        onNavigateHome={() => setShowAdminView(false)}
+        onOpenAdminPanel={() => setShowAdminView(true)}
       />
 
       {currentUser ? (
-        userProfile?.role === "Driver" ? (
+        showAdminView && isSuperAdmin ? (
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            <AdminPanel onBackToApp={() => setShowAdminView(false)} />
+          </main>
+        ) : userProfile?.role === "Driver" ? (
           <DriverDashboard />
         ) : (
           <Dashboard />

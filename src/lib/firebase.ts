@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore
+} from "firebase/firestore";
 import firebaseConfigRaw from "../../firebase-applet-config.json";
 
 const firebaseConfig = {
@@ -17,9 +23,25 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
 // Use custom firestoreDatabaseId from firebase-applet-config.json if present
-export const db = firebaseConfigRaw.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfigRaw.firestoreDatabaseId)
-  : getFirestore(app);
+let firestoreDb: Firestore;
+try {
+  const dbId = firebaseConfigRaw.firestoreDatabaseId || undefined;
+  if (dbId) {
+    firestoreDb = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    }, dbId);
+  } else {
+    firestoreDb = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  }
+} catch {
+  firestoreDb = firebaseConfigRaw.firestoreDatabaseId
+    ? getFirestore(app, firebaseConfigRaw.firestoreDatabaseId)
+    : getFirestore(app);
+}
+
+export const db = firestoreDb;
 
 export async function createDriverAuthAccount(email: string, pass: string): Promise<string> {
   const secondaryApp = initializeApp(firebaseConfig, "SecondaryDriverApp_" + Date.now());
