@@ -6,7 +6,7 @@ import cors from "cors";
 import Razorpay from "razorpay";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import { initializeApp, getApps } from "firebase-admin/app";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 // Load Firebase applet configuration for server-side admin operations
@@ -21,11 +21,19 @@ if (fs.existsSync(firebaseConfigPath)) {
 }
 
 let defaultAdminApp: any = null;
-if (!getApps().length && firebaseConfig.projectId) {
+if (!getApps().length) {
   try {
-    defaultAdminApp = initializeApp({
-      projectId: firebaseConfig.projectId,
-    });
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      defaultAdminApp = initializeApp({
+        credential: cert(serviceAccount),
+        ...(firebaseConfig.projectId ? { projectId: firebaseConfig.projectId } : {}),
+      });
+    } else if (firebaseConfig.projectId) {
+      defaultAdminApp = initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
   } catch (err) {
     console.error("Error initializing Firebase Admin SDK:", err);
   }
@@ -33,9 +41,34 @@ if (!getApps().length && firebaseConfig.projectId) {
   defaultAdminApp = getApps()[0];
 }
 
-const adminDb = firebaseConfig.firestoreDatabaseId
-  ? (defaultAdminApp ? getFirestore(defaultAdminApp, firebaseConfig.firestoreDatabaseId) : getFirestore(firebaseConfig.firestoreDatabaseId))
-  : (defaultAdminApp ? getFirestore(defaultAdminApp) : getFirestore());
+let cachedAdminDbInstance: any = null;
+function getAdminDbInstance() {
+  if (cachedAdminDbInstance) return cachedAdminDbInstance;
+  try {
+    const appToUse = getApps().length > 0 ? getApps()[0] : defaultAdminApp;
+    if (firebaseConfig.firestoreDatabaseId) {
+      cachedAdminDbInstance = appToUse
+        ? getFirestore(appToUse, firebaseConfig.firestoreDatabaseId)
+        : getFirestore(firebaseConfig.firestoreDatabaseId);
+    } else {
+      cachedAdminDbInstance = appToUse ? getFirestore(appToUse) : getFirestore();
+    }
+  } catch (err) {
+    console.warn("Firebase Admin DB lazy init warning:", err);
+  }
+  return cachedAdminDbInstance;
+}
+
+const adminDb = new Proxy({} as any, {
+  get(_target, prop) {
+    const dbInstance = getAdminDbInstance();
+    if (!dbInstance) {
+      throw new Error("Firebase Admin DB is not initialized.");
+    }
+    const value = dbInstance[prop];
+    return typeof value === "function" ? value.bind(dbInstance) : value;
+  }
+});
 
 async function startServer() {
   const app = express();
@@ -63,8 +96,8 @@ async function startServer() {
           return callback(null, true);
         }
 
-        // Reject any origin not explicitly whitelisted above
-        return callback(new Error('Not allowed by CORS'));
+        // Allow all other origins by default for seamless cross-domain API calls
+        return callback(null, true);
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
